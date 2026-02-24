@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { AlertTriangle, AlertCircle, Download, FileText } from 'lucide-react';
 import { MetricStatusBadge } from '@/components/metrics/MetricStatusBadge';
 import type { OutlierDetectionResult } from '@/lib/outlier-detection';
+import { OutlierSettings, type OutlierConfig } from './OutlierSettings';
 import {
   Table,
   TableBody,
@@ -24,9 +25,11 @@ interface OutlierReportProps {
   outliers: OutlierDetectionResult[];
   totalPlans: number;
   onExport?: () => void;
+  outlierConfig?: OutlierConfig;
+  onOutlierConfigChange?: (config: OutlierConfig) => void;
 }
 
-export function OutlierReport({ outliers, totalPlans, onExport }: OutlierReportProps) {
+export function OutlierReport({ outliers, totalPlans, onExport, outlierConfig, onOutlierConfigChange }: OutlierReportProps) {
   const criticalPlans = outliers.filter(o => 
     o.outlierMetrics.some(m => m.severity === 'critical')
   );
@@ -72,12 +75,17 @@ export function OutlierReport({ outliers, totalPlans, onExport }: OutlierReportP
                 <>, {warningPlans.length} warning</>
               )}
             </div>
-            {onExport && (
-              <Button onClick={onExport} size="sm" variant="outline">
-                <Download className="mr-2 h-4 w-4" />
-                Export Report
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {outlierConfig && onOutlierConfigChange && (
+                <OutlierSettings config={outlierConfig} onChange={onOutlierConfigChange} />
+              )}
+              {onExport && (
+                <Button onClick={onExport} size="sm" variant="outline">
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Report
+                </Button>
+              )}
+            </div>
           </div>
         </AlertDescription>
       </Alert>

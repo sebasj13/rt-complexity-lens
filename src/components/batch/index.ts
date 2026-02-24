@@ -6,3 +6,4 @@ export { BatchDistributionChart } from './BatchDistributionChart';
 export { BatchExportPanel } from './BatchExportPanel';
 export { BatchDemoLoader } from './BatchDemoLoader';
 export { OutlierReport } from './OutlierReport';
+export { OutlierSettings } from './OutlierSettings';

@@ -13,7 +13,7 @@ import {
 import { useThresholdConfig } from '@/contexts/ThresholdConfigContext';
 import { BUILTIN_PRESETS } from '@/lib/threshold-definitions';
 import { METRIC_DEFINITIONS } from '@/lib/metrics-definitions';
-import { PresetManager } from '@/components/settings';
+import { PresetManager, MachineCharacteristicsCard } from '@/components/settings';
 
 interface ThresholdSettingsProps {
   className?: string;
@@ -107,30 +107,10 @@ export function ThresholdSettings({ className }: ThresholdSettingsProps) {
             </Select>
           </div>
 
-          {/* Show delivery params for selected user preset (read-only) */}
-          {selectedUserPreset && (
-            <div className="rounded-md border bg-muted/30 p-3 space-y-2">
-              <Label className="text-xs text-muted-foreground">Delivery Parameters</Label>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-muted-foreground">Max Dose Rate:</span>{' '}
-                  {selectedUserPreset.deliveryParams.maxDoseRate} MU/min
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Gantry Speed:</span>{' '}
-                  {selectedUserPreset.deliveryParams.maxGantrySpeed} °/s
-                </div>
-                <div>
-                  <span className="text-muted-foreground">MLC Speed:</span>{' '}
-                  {selectedUserPreset.deliveryParams.maxMLCSpeed} mm/s
-                </div>
-                <div>
-                  <span className="text-muted-foreground">MLC Type:</span>{' '}
-                  {selectedUserPreset.deliveryParams.mlcModel || selectedUserPreset.deliveryParams.mlcType}
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Machine Characteristics Card - shown for ALL preset types */}
+          {!isCustomOrUserPreset || selectedUserPreset ? (
+            <MachineCharacteristicsCard />
+          ) : null}
 
           {/* Custom Thresholds Editor - for non-preset selection */}
           {!selectedUserPreset && isCustomOrUserPreset && (

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Trash2, HelpCircle, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,25 +23,23 @@ import {
   BatchExportPanel,
 } from '@/components/batch';
 import { OutlierReport } from '@/components/batch/OutlierReport';
+import { type OutlierConfig, DEFAULT_OUTLIER_CONFIG } from '@/components/batch/OutlierSettings';
 import { detectOutliers } from '@/lib/outlier-detection';
-import { useMemo } from 'react';
 
 export default function BatchDashboard() {
   const { plans, clearAll, isProcessing } = useBatch();
   const { selectedPreset, setPreset, userPresets, getPresetName } = useThresholdConfig();
   const hasPlans = plans.length > 0;
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const [outlierConfig, setOutlierConfig] = useState<OutlierConfig>(DEFAULT_OUTLIER_CONFIG);
 
   const builtInOptions = Object.values(BUILTIN_PRESETS);
 
   // Detect outliers in the batch
   const outliers = useMemo(() => {
-    if (plans.length < 5) return [];
-    return detectOutliers(plans, {
-      zScoreThreshold: 2.0,
-      criticalZScoreThreshold: 3.0,
-    });
-  }, [plans]);
+    if (plans.length < outlierConfig.minPlans) return [];
+    return detectOutliers(plans, outlierConfig);
+  }, [plans, outlierConfig]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -142,10 +140,12 @@ export default function BatchDashboard() {
         )}
 
         {/* Outlier Detection Report */}
-        {hasPlans && plans.length >= 5 && (
+        {hasPlans && plans.length >= outlierConfig.minPlans && (
           <OutlierReport 
             outliers={outliers} 
             totalPlans={plans.length}
+            outlierConfig={outlierConfig}
+            onOutlierConfigChange={setOutlierConfig}
             onExport={() => {
               const headers = ['Plan', 'File', 'Severity', 'Metric', 'Metric Name', 'Value', 'Z-Score', 'Percentile', 'Complexity Score', 'Recommendation'];
               const rows = outliers.flatMap(o =>
