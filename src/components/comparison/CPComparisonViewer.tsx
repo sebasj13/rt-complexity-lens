@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MLCApertureViewer } from '@/components/viewer/MLCApertureViewer';
 import { MLCDifferenceViewer } from './MLCDifferenceViewer';
@@ -13,6 +15,10 @@ interface CPComparisonViewerProps {
   beamB: Beam;
   currentCPIndex: number;
   onCPIndexChange: (index: number) => void;
+  independentNav: boolean;
+  onIndependentNavChange: (value: boolean) => void;
+  cpIndexB: number;
+  onCPIndexBChange: (index: number) => void;
 }
 
 function CPDetails({ cp, label }: { cp: ControlPoint; label: string }) {
@@ -39,20 +45,30 @@ export function CPComparisonViewer({
   beamB,
   currentCPIndex,
   onCPIndexChange,
+  independentNav,
+  onIndependentNavChange,
+  cpIndexB,
+  onCPIndexBChange,
 }: CPComparisonViewerProps) {
-  const maxCPs = Math.max(beamA.controlPoints.length, beamB.controlPoints.length);
-  const minCPs = Math.min(beamA.controlPoints.length, beamB.controlPoints.length);
+  const maxCPsA = beamA.controlPoints.length;
+  const maxCPsB = beamB.controlPoints.length;
+  const minCPs = Math.min(maxCPsA, maxCPsB);
 
-  // Clamp index to valid range for both beams
-  const safeIndex = Math.min(currentCPIndex, minCPs - 1);
-  
-  const cpA = beamA.controlPoints[safeIndex];
-  const cpB = beamB.controlPoints[safeIndex];
+  // In synced mode, clamp to min; in independent mode, each uses its own max
+  const safeIndexA = independentNav
+    ? Math.min(currentCPIndex, maxCPsA - 1)
+    : Math.min(currentCPIndex, minCPs - 1);
+  const safeIndexB = independentNav
+    ? Math.min(cpIndexB, maxCPsB - 1)
+    : Math.min(currentCPIndex, minCPs - 1);
+
+  const cpA = beamA.controlPoints[safeIndexA];
+  const cpB = beamB.controlPoints[safeIndexB];
 
   // Calculate differences
   const gantryDiff = cpA && cpB ? Math.abs(cpA.gantryAngle - cpB.gantryAngle) : 0;
-  const metersetDiff = cpA && cpB 
-    ? Math.abs(cpA.cumulativeMetersetWeight - cpB.cumulativeMetersetWeight) * 100 
+  const metersetDiff = cpA && cpB
+    ? Math.abs(cpA.cumulativeMetersetWeight - cpB.cumulativeMetersetWeight) * 100
     : 0;
 
   return (
@@ -62,31 +78,85 @@ export function CPComparisonViewer({
           <CardTitle className="text-base">
             Control Point Comparison
           </CardTitle>
-          <Badge variant="outline">
-            CP {safeIndex + 1} / {minCPs}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="independent-nav"
+                checked={independentNav}
+                onCheckedChange={onIndependentNavChange}
+              />
+              <Label htmlFor="independent-nav" className="text-xs cursor-pointer">
+                Independent
+              </Label>
+            </div>
+            {independentNav ? (
+              <div className="flex gap-1">
+                <Badge variant="outline" className="text-[hsl(var(--chart-comparison-a))]">
+                  A: {safeIndexA + 1}/{maxCPsA}
+                </Badge>
+                <Badge variant="outline" className="text-[hsl(var(--chart-comparison-b))]">
+                  B: {safeIndexB + 1}/{maxCPsB}
+                </Badge>
+              </div>
+            ) : (
+              <Badge variant="outline">
+                CP {safeIndexA + 1} / {minCPs}
+              </Badge>
+            )}
+          </div>
         </div>
-        {beamA.controlPoints.length !== beamB.controlPoints.length && (
+        {beamA.controlPoints.length !== beamB.controlPoints.length && !independentNav && (
           <p className="text-xs text-amber-500">
-            Note: Beams have different CP counts ({beamA.controlPoints.length} vs {beamB.controlPoints.length})
+            Note: Beams have different CP counts ({maxCPsA} vs {maxCPsB}). Enable independent navigation to browse each fully.
           </p>
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* CP Slider */}
-        <div className="space-y-2">
-          <Slider
-            value={[safeIndex]}
-            min={0}
-            max={minCPs - 1}
-            step={1}
-            onValueChange={([val]) => onCPIndexChange(val)}
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>CP 1</span>
-            <span>CP {minCPs}</span>
+        {/* CP Slider(s) */}
+        {independentNav ? (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-[hsl(var(--chart-comparison-a))] font-medium">Plan A</span>
+                <span className="text-muted-foreground font-mono">CP {safeIndexA + 1}</span>
+              </div>
+              <Slider
+                value={[safeIndexA]}
+                min={0}
+                max={maxCPsA - 1}
+                step={1}
+                onValueChange={([val]) => onCPIndexChange(val)}
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-[hsl(var(--chart-comparison-b))] font-medium">Plan B</span>
+                <span className="text-muted-foreground font-mono">CP {safeIndexB + 1}</span>
+              </div>
+              <Slider
+                value={[safeIndexB]}
+                min={0}
+                max={maxCPsB - 1}
+                step={1}
+                onValueChange={([val]) => onCPIndexBChange(val)}
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-2">
+            <Slider
+              value={[safeIndexA]}
+              min={0}
+              max={minCPs - 1}
+              step={1}
+              onValueChange={([val]) => onCPIndexChange(val)}
+            />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>CP 1</span>
+              <span>CP {minCPs}</span>
+            </div>
+          </div>
+        )}
 
         {/* View Mode Tabs */}
         <Tabs defaultValue="side-by-side" className="w-full">
