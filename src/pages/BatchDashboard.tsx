@@ -147,8 +147,29 @@ export default function BatchDashboard() {
             outliers={outliers} 
             totalPlans={plans.length}
             onExport={() => {
-              // TODO: Implement CSV export of outliers
-              console.log('Export outliers:', outliers);
+              const headers = ['Plan', 'File', 'Severity', 'Metric', 'Metric Name', 'Value', 'Z-Score', 'Percentile', 'Complexity Score', 'Recommendation'];
+              const rows = outliers.flatMap(o =>
+                o.outlierMetrics.map(m => [
+                  o.planId,
+                  o.fileName,
+                  m.severity,
+                  m.metricKey,
+                  m.metricName,
+                  m.value.toFixed(4),
+                  m.zScore.toFixed(2),
+                  m.percentile.toFixed(1),
+                  o.overallComplexityScore.toFixed(1),
+                  `"${o.recommendation}"`,
+                ].join(','))
+              );
+              const csv = [headers.join(','), ...rows].join('\n');
+              const blob = new Blob([csv], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'rtplens-outlier-report.csv';
+              a.click();
+              URL.revokeObjectURL(url);
             }}
           />
         )}
