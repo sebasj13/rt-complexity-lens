@@ -1,87 +1,101 @@
 
 
-# Asynchronous Control Point and MLC Comparison Mode
+# Configurable Statistical Analysis + Visible Linac Characteristics
 
-## What This Adds
+## Overview
 
-Currently, the CP comparison viewer locks both plans to the **same control point index**. This works when plans have identical CP counts and sampling, but is misleading when:
-- Plans have different CP counts (e.g., 178 vs 90 CPs)
-- Plans use different gantry sampling rates
-- A user wants to compare specific apertures at different delivery points (e.g., "what does Plan A look like at CP 50 vs Plan B at CP 120?")
+Two improvements to make the app more configurable and transparent:
 
-This enhancement adds an **Independent Navigation** toggle that decouples the two CP sliders, letting users freely browse each plan's control points and MLC segments independently.
+1. **Configurable Outlier Detection Parameters** -- currently the z-score thresholds and minimum plan count are hardcoded in `BatchDashboard.tsx`. These should be user-adjustable via a settings popover.
 
-## User Experience
+2. **Visible Linac Characteristics Panel** -- the currently selected machine preset's delivery parameters and thresholds are buried in the Preset Manager dialog. A compact, always-visible summary card should show the active machine's key specs (dose rate, gantry speed, MLC speed/type, thresholds) with a quick-edit button.
 
-1. A new **Switch toggle** labeled "Independent Navigation" appears in the CP Comparison Viewer card header
-2. **Toggle OFF (default)**: Current behavior -- single slider controls both plans (synchronized)
-3. **Toggle ON**: Two separate sliders appear, one for Plan A and one for Plan B, each with its own range (0 to that plan's max CPs). The MLC aperture viewers, CP details, and difference overlay all update independently
-4. When in independent mode, the difference overlay still works but now compares the two independently-selected control points
-5. Charts (MU, Delivery, Polar) show **two reference lines** in independent mode -- one for each plan's current CP position
+## Changes
 
-## Technical Changes
+### 1. Configurable Outlier Detection Settings
 
-### 1. `src/pages/ComparePlans.tsx`
-- Add state: `const [independentNav, setIndependentNav] = useState(false)`
-- Add state: `const [cpIndexB, setCpIndexB] = useState(0)` (Plan B's independent CP index)
-- Pass `independentNav`, `cpIndexB`, `setCpIndexB` down to `CPComparisonViewer`
-- Pass `cpIndexB` (or `currentCPIndex` when synced) to chart components
-- Reset `cpIndexB` to 0 when beam match or toggle changes
+**New component: `src/components/batch/OutlierSettings.tsx`**
 
-### 2. `src/components/comparison/CPComparisonViewer.tsx` (main changes)
-- Add props: `independentNav`, `onIndependentNavChange`, `cpIndexB`, `onCPIndexBChange`
-- Add the Switch toggle in the card header area
-- When `independentNav` is true:
-  - Render **two sliders** (one for Plan A, one for Plan B) with separate ranges (`0..beamA.controlPoints.length-1` and `0..beamB.controlPoints.length-1`)
-  - Use `currentCPIndex` for Plan A's CP selection
-  - Use `cpIndexB` for Plan B's CP selection
-  - Update badge to show both: "CP 12/178 | CP 45/90"
-  - The difference overlay compares `beamA.controlPoints[currentCPIndex]` vs `beamB.controlPoints[cpIndexB]`
-  - The gantry/meterset deltas compare the independently-selected CPs
-- When `independentNav` is false:
-  - Current behavior unchanged (single slider, clamped to min CP count)
+A popover triggered from the Outlier Report section header with controls for:
+- **Z-Score Warning Threshold** (default: 2.0) -- slider or number input, range 1.0-4.0
+- **Z-Score Critical Threshold** (default: 3.0) -- slider or number input, range 2.0-5.0
+- **Minimum Plans Required** (default: 5) -- number input, range 3-20
+- Reset to defaults button
 
-### 3. `src/components/comparison/ComparisonMUChart.tsx`
-- Add optional prop: `cpIndexB?: number`
-- When `cpIndexB` is provided and differs from `currentCPIndex`, render a **second ReferenceLine** for Plan B's position using `hsl(var(--chart-comparison-b))` color
+**File: `src/pages/BatchDashboard.tsx`**
 
-### 4. `src/components/comparison/ComparisonDeliveryChart.tsx`
-- Same pattern: add optional `cpIndexB` prop, render second reference line when in independent mode
+- Add state for outlier config: `outlierConfig` with `{ zScoreThreshold, criticalZScoreThreshold, minPlans }`
+- Pass config to `detectOutliers()` call (currently hardcoded `{ zScoreThreshold: 2.0, criticalZScoreThreshold: 3.0 }`)
+- Pass config + setter to `OutlierReport` and render the settings popover in its header
+- Update the `plans.length >= 5` guard to use `minPlans` from config
 
-### 5. `src/components/comparison/index.ts`
-- No changes needed (no new components)
+**File: `src/components/batch/OutlierReport.tsx`**
 
-## Layout Detail (Independent Mode)
+- Add optional `outlierConfig` and `onOutlierConfigChange` props
+- Render a Settings gear icon button in the summary alert bar that opens `OutlierSettings`
 
+### 2. Active Machine Characteristics Card
+
+**New component: `src/components/settings/MachineCharacteristicsCard.tsx`**
+
+A compact card/badge strip that displays the active preset's key specs at a glance:
+- Preset name (e.g., "Varian TrueBeam")
+- Max Dose Rate, Gantry Speed, MLC Speed, MLC Model
+- Threshold summary (warning/critical counts or key values)
+- Click-to-edit: clicking the card opens the `PresetEditor` for user presets, or prompts to duplicate for built-in presets
+- Shown in the sidebar/settings area of Single Plan Viewer and in the header area of Batch/Cohort dashboards
+
+**File: `src/components/viewer/ThresholdSettings.tsx`**
+
+- Replace the read-only delivery params display (currently only for user presets) with the new `MachineCharacteristicsCard` for ALL preset types (built-in and user)
+- Show delivery params and threshold summary for built-in presets too (currently hidden)
+- Add an "Edit" or "Duplicate & Edit" button depending on preset type
+
+**File: `src/components/settings/index.ts`**
+
+- Export the new `MachineCharacteristicsCard`
+
+### 3. Summary of All Files
+
+| File | Action | Description |
+|---|---|---|
+| `src/components/batch/OutlierSettings.tsx` | Create | Popover with z-score and min-plans controls |
+| `src/components/batch/OutlierReport.tsx` | Modify | Add settings trigger in header, accept config props |
+| `src/pages/BatchDashboard.tsx` | Modify | Add outlier config state, pass to detection + report |
+| `src/components/settings/MachineCharacteristicsCard.tsx` | Create | Compact read-only display of active preset specs |
+| `src/components/viewer/ThresholdSettings.tsx` | Modify | Show characteristics card for all presets (not just user) |
+| `src/components/settings/index.ts` | Modify | Export new component |
+| `src/components/batch/index.ts` | Modify | Export OutlierSettings |
+
+### Technical Details
+
+**OutlierSettings popover layout:**
 ```text
-+--------------------------------------------------+
-| Control Point Comparison    [Independent Nav: ON] |
-| CP A: 12/178  |  CP B: 45/90                     |
-+--------------------------------------------------+
-| Plan A Slider: [====|===========]  CP 12          |
-| Plan B Slider: [==================|===]  CP 45    |
-+--------------------------------------------------+
-| [Side-by-Side] [Difference Overlay]               |
-|                                                   |
-|  Plan A (CP 12)       Plan B (CP 45)              |
-|  +----------+         +----------+                |
-|  | MLC A    |         | MLC B    |                |
-|  +----------+         +----------+                |
-|  Gantry: 120.5        Gantry: 278.3               |
-|  Meterset: 23.1%      Meterset: 67.2%             |
-+--------------------------------------------------+
-| Gantry Delta: 157.8   Meterset Delta: 44.1%       |
-+--------------------------------------------------+
++----------------------------------+
+| Outlier Detection Settings       |
++----------------------------------+
+| Warning Z-Score    [===|===] 2.0 |
+| Critical Z-Score   [=====|=] 3.0 |
+| Min Plans Required [  5  ]       |
+|                                  |
+| [Reset to Defaults]              |
++----------------------------------+
 ```
 
-## Files Modified
+**MachineCharacteristicsCard layout:**
+```text
++------------------------------------------+
+| Varian TrueBeam              [Edit/Dup]  |
+| Millennium 120 | MLCX                     |
++------------------------------------------+
+| Dose Rate: 600 MU/min  | Gantry: 6.0 d/s|
+| MLC Speed: 25 mm/s     | FFF: 1400 MU/m |
++------------------------------------------+
+| Thresholds: MCS<0.30w/0.20c  LT>15000w  |
++------------------------------------------+
+```
 
-| File | Change |
-|---|---|
-| `src/pages/ComparePlans.tsx` | Add `independentNav`, `cpIndexB` state; pass to children |
-| `src/components/comparison/CPComparisonViewer.tsx` | Add toggle, dual sliders, independent CP selection |
-| `src/components/comparison/ComparisonMUChart.tsx` | Add optional second reference line |
-| `src/components/comparison/ComparisonDeliveryChart.tsx` | Add optional second reference line |
+The characteristics card will read from `useThresholdConfig()` using `getCurrentDeliveryParams()` and `getCurrentThresholds()` to always show the active preset's values, whether built-in, user, or custom.
 
-No new files, no new dependencies.
+No new dependencies required.
 
