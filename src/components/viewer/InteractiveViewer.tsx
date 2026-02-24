@@ -309,6 +309,12 @@ export const InteractiveViewer = forwardRef<HTMLDivElement, object>(
                 <span>{sessionPlan.plan.beams.length} beam{sessionPlan.plan.beams.length !== 1 ? 's' : ''}</span>
                 <Separator orientation="vertical" className="h-4" />
                 <span>{sessionPlan.plan.totalMU.toFixed(0)} MU total</span>
+                {sessionPlan.plan.treatmentMachineName && (
+                  <>
+                    <Separator orientation="vertical" className="h-4" />
+                    <Badge variant="outline">{sessionPlan.plan.treatmentMachineName}</Badge>
+                  </>
+                )}
                 {sessionPlan.plan.prescribedDose != null && (
                   <>
                     <Separator orientation="vertical" className="h-4" />
