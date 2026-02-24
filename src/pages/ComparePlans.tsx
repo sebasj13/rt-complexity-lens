@@ -31,6 +31,8 @@ export default function ComparePlans() {
   const [planB, setPlanB] = useState<SessionPlan | null>(null);
   const [selectedBeamMatch, setSelectedBeamMatch] = useState(0);
   const [currentCPIndex, setCurrentCPIndex] = useState(0);
+  const [independentNav, setIndependentNav] = useState(false);
+  const [cpIndexB, setCpIndexB] = useState(0);
   const [pdfLoading, setPdfLoading] = useState(false);
   const compareContentRef = useRef<HTMLDivElement>(null);
   
@@ -56,7 +58,13 @@ export default function ComparePlans() {
   const handleBeamMatchSelect = useCallback((index: number) => {
     setSelectedBeamMatch(index);
     setCurrentCPIndex(0);
+    setCpIndexB(0);
   }, []);
+
+  const handleIndependentNavChange = useCallback((value: boolean) => {
+    setIndependentNav(value);
+    setCpIndexB(currentCPIndex);
+  }, [currentCPIndex]);
 
   const handlePlanARemoved = useCallback(() => {
     setPlanA(null);
@@ -203,6 +211,10 @@ export default function ComparePlans() {
                     beamB={selectedBeams.beamB}
                     currentCPIndex={currentCPIndex}
                     onCPIndexChange={setCurrentCPIndex}
+                    independentNav={independentNav}
+                    onIndependentNavChange={handleIndependentNavChange}
+                    cpIndexB={cpIndexB}
+                    onCPIndexBChange={setCpIndexB}
                   />
                   
                    {/* Comparison Charts */}
@@ -217,6 +229,7 @@ export default function ComparePlans() {
                       (m) => m.beamNumber === selectedBeams.beamB.beamNumber
                     )?.beamMU ?? 0}
                     currentCPIndex={currentCPIndex}
+                    cpIndexB={independentNav ? cpIndexB : undefined}
                    />
                   </div>
                   
@@ -230,6 +243,7 @@ export default function ComparePlans() {
                       (m) => m.beamNumber === selectedBeams.beamB.beamNumber
                     )!}
                     currentCPIndex={currentCPIndex}
+                    cpIndexB={independentNav ? cpIndexB : undefined}
                   />
                   
                   <div data-chart-section="Polar Chart">

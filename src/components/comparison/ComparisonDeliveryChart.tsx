@@ -21,6 +21,7 @@ interface ComparisonDeliveryChartProps {
   metricsA: BeamMetrics;
   metricsB: BeamMetrics;
   currentCPIndex: number;
+  cpIndexB?: number;
   height?: number;
 }
 
@@ -30,6 +31,7 @@ export function ComparisonDeliveryChart({
   metricsA,
   metricsB,
   currentCPIndex,
+  cpIndexB,
   height = 180,
 }: ComparisonDeliveryChartProps) {
   const chartRef = useRef<HTMLDivElement>(null);
@@ -197,11 +199,20 @@ export function ComparisonDeliveryChart({
                 />
                 <ReferenceLine
                   x={currentCPIndex + 1}
-                  stroke="hsl(var(--foreground))"
+                  stroke={cpIndexB != null ? 'hsl(var(--chart-comparison-a))' : 'hsl(var(--foreground))'}
                   strokeWidth={1.5}
                   strokeDasharray="4 2"
                   opacity={0.5}
                 />
+                {cpIndexB != null && cpIndexB !== currentCPIndex && (
+                  <ReferenceLine
+                    x={cpIndexB + 1}
+                    stroke="hsl(var(--chart-comparison-b))"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 2"
+                    opacity={0.5}
+                  />
+                )}
               </LineChart>
             </ResponsiveContainer>
           </TabsContent>
@@ -262,11 +273,20 @@ export function ComparisonDeliveryChart({
                 />
                 <ReferenceLine
                   x={currentCPIndex + 1}
-                  stroke="hsl(var(--foreground))"
+                  stroke={cpIndexB != null ? 'hsl(var(--chart-comparison-a))' : 'hsl(var(--foreground))'}
                   strokeWidth={1.5}
                   strokeDasharray="4 2"
                   opacity={0.5}
                 />
+                {cpIndexB != null && cpIndexB !== currentCPIndex && (
+                  <ReferenceLine
+                    x={cpIndexB + 1}
+                    stroke="hsl(var(--chart-comparison-b))"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 2"
+                    opacity={0.5}
+                  />
+                )}
               </LineChart>
             </ResponsiveContainer>
           </TabsContent>
@@ -353,11 +373,20 @@ export function ComparisonDeliveryChart({
                 />
                 <ReferenceLine
                   x={currentCPIndex + 1}
-                  stroke="hsl(var(--foreground))"
+                  stroke={cpIndexB != null ? 'hsl(var(--chart-comparison-a))' : 'hsl(var(--foreground))'}
                   strokeWidth={1.5}
                   strokeDasharray="4 2"
                   opacity={0.5}
                 />
+                {cpIndexB != null && cpIndexB !== currentCPIndex && (
+                  <ReferenceLine
+                    x={cpIndexB + 1}
+                    stroke="hsl(var(--chart-comparison-b))"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 2"
+                    opacity={0.5}
+                  />
+                )}
               </LineChart>
             </ResponsiveContainer>
           </TabsContent>
