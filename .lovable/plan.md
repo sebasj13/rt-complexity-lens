@@ -1,81 +1,98 @@
 
 
-# Update Validation Report with Live Parity Data and Source File Links
+# Fix Static vs Dynamic Beam Classification and MLC Display
 
-## Overview
+## Problem Summary
 
-The current `validation-data.ts` has placeholder zeros for all metric deltas. This change will:
-1. Run the TS parity test in-browser to compute real delta values from test DICOM files
-2. Add GitHub links to the source files that define tolerances and run cross-validation
-3. Add a "Download JSON" button for the raw validation data
+Two bugs found through live testing with demo plans:
+
+1. **All IMRT beams wrongly labeled "Arc"**: The `isArc` flag in `parser.ts` uses `beamType === 'DYNAMIC'` as a condition, but DICOM uses "DYNAMIC" for both VMAT arcs (gantry rotates) and step-and-shoot IMRT (MLC moves, gantry fixed). This cascades into wrong technique detection ("VMAT" instead of "IMRT"), wrong beam labels ("Arc" vs "Static"), and wrong arc length display (360 degrees for static beams).
+
+2. **MLC aperture not rendered when jaw data is missing**: The `MLCApertureViewer` refuses to render if `hasValidJaws` is false, even when valid MLC leaf positions exist. Some vendor plans (particularly Elekta/Monaco) may not have explicit jaw data, causing the MLC viewer to show "No jaw data available" instead of the aperture.
 
 ## Changes
 
-### 1. Update `src/lib/validation-data.ts` with Real Computed Deltas
+### 1. Fix `isArc` detection in `src/lib/dicom/parser.ts` (line 434)
 
-Replace placeholder zeros with actual computed delta values. Since the TS and Python implementations are verified identical (both produce identical output for all 25 plans), the deltas are genuinely 0.000000 for all metrics. However, the file should also include:
+**Current (wrong):**
+```
+const isArc = Math.abs(gantryEnd - gantryStart) > 5 || beamType === 'DYNAMIC';
+```
 
-- `sourceFiles` constant with GitHub URLs to the key files:
-  - `python/tests/cross_validate.py` (the Python cross-validation script)
-  - `src/lib/validation-data.ts` (this file itself)
-  - `src/test/export-metrics-json.test.ts` (TS reference data generator)
-  - `python/tests/reference_data/reference_metrics_ts.json` (generated reference data)
-- `GITHUB_BASE_URL` constant: `https://github.com/matteomaspero/rt-complexity-lens/blob/main/`
+**Fixed:**
+Use `gantryRotationDirection` as the primary arc indicator. A beam is an arc only if:
+- The first control point has a rotation direction of 'CW' or 'CCW', OR
+- The gantry angles span more than 5 degrees across control points (fallback for plans missing rotation direction)
 
-### 2. Update `src/pages/ValidationReport.tsx`
+The `beamType === 'DYNAMIC'` condition is removed since it conflates MLC motion with gantry rotation.
 
-**Add source file links section:**
-- After the info box in Section A, add a "Source Files" subsection with clickable links to:
-  - Cross-validation script (`cross_validate.py`) on GitHub
-  - TS reference data generator (`export-metrics-json.test.ts`) on GitHub
-  - Tolerance definitions (`validation-data.ts`) on GitHub
-  - Generated reference data (`reference_metrics_ts.json`) on GitHub
+```
+const hasGantryRotation = controlPoints.length > 0 &&
+  (controlPoints[0].gantryRotationDirection === 'CW' ||
+   controlPoints[0].gantryRotationDirection === 'CCW');
+const gantrySpan = (() => {
+  if (controlPoints.length < 2) return 0;
+  const angles = controlPoints.map(cp => cp.gantryAngle);
+  let maxSpan = 0;
+  for (let i = 1; i < angles.length; i++) {
+    let d = Math.abs(angles[i] - angles[i-1]);
+    if (d > 180) d = 360 - d;
+    maxSpan += d;
+  }
+  return maxSpan;
+})();
+const isArc = hasGantryRotation || gantrySpan > 5;
+```
 
-**Add download button:**
-- Add a "Download Validation Data (JSON)" button in the footer area
-- On click, generate a JSON blob from the validation data constants (`CROSS_VALIDATION_SUMMARY`, `PER_METRIC_DELTAS`, `METRIC_TOLERANCES`, `UCOMX_BENCHMARK`) and trigger a browser download
-- Include the file name: `rtp-lens-validation-report.json`
+This correctly classifies:
+- VMAT arcs (CW/CCW rotation) as arcs
+- Step-and-shoot IMRT (DYNAMIC beam type, NONE rotation, same gantry angle) as non-arcs
+- Static conformal beams (STATIC type) as non-arcs
 
-**Add unit column to the metric table:**
-- Show the unit from `METRIC_TOLERANCES` alongside the tolerance value (e.g., "0.0001 --" or "0.1 mm")
+### 2. Fix MLC display without jaw data in `src/components/viewer/MLCApertureViewer.tsx` (line 89)
 
-### 3. Add `treatmentMachineName` to Export Test
-
-Update `src/test/export-metrics-json.test.ts` to also export `treatmentMachineName` per beam in the reference data, so the Python cross-validation can verify machine name parsing parity.
-
-## File Summary
-
-| File | Action | Description |
-|---|---|---|
-| `src/lib/validation-data.ts` | Modify | Add `SOURCE_FILES` constant with GitHub URLs |
-| `src/pages/ValidationReport.tsx` | Modify | Add source file links section, download button, unit column |
-| `src/test/export-metrics-json.test.ts` | Modify | Add `treatmentMachineName` to exported beam data |
-
-## Technical Details
-
-### Download JSON Structure
-
-```text
-{
-  "generatedAt": "2026-02-25T...",
-  "generator": "RTp-lens Validation Report",
-  "summary": { planCount, passCount, failCount, lastValidated },
-  "tolerances": [ ... METRIC_TOLERANCES ],
-  "deltas": [ ... PER_METRIC_DELTAS ],
-  "benchmark": { ... UCOMX_BENCHMARK },
-  "algorithms": [ ... SHARED_ALGORITHMS ],
-  "sourceFiles": { ... SOURCE_FILES }
+**Current (wrong):**
+```
+if (bankA.length === 0 || bankB.length === 0 || !hasValidJaws) {
+  return <div>No MLC/jaw data</div>;
 }
 ```
 
-### Source Files Links (rendered as a compact list)
+**Fixed:**
+When MLC data exists but jaw data is missing, derive the viewBox from the MLC positions alone and render the aperture without the jaw outline rectangle. Only show "No MLC data" when leaf positions are truly empty.
 
-```text
-Source Files
-  - Cross-validation script     -> python/tests/cross_validate.py
-  - TS reference generator      -> src/test/export-metrics-json.test.ts
-  - Tolerance definitions       -> src/lib/validation-data.ts
-  - Reference data (JSON)       -> python/tests/reference_data/reference_metrics_ts.json
+- Remove `!hasValidJaws` from the early-return guard
+- Adjust `viewBox` calculation to work with MLC-only data (use leaf extent when jaws are invalid)
+- Conditionally render the jaw outline rectangle only when `hasValidJaws` is true
+
+### 3. Update `determineTechnique` in `src/lib/dicom/parser.ts` (line 486)
+
+The technique detection function already uses `isArc` from beams, so fixing `isArc` automatically fixes the plan-level technique badge. No additional changes needed here -- it will now correctly return 'IMRT' for plans with DYNAMIC beams that have no gantry rotation.
+
+### 4. Update `BeamSummaryCard.tsx` label logic (line 99)
+
+**Current:**
+```
+{beam.isArc ? 'VMAT Arc' : beam.beamType === 'DYNAMIC' ? 'IMRT' : 'Static'}
 ```
 
-Each is a clickable link to the GitHub blob URL with an ExternalLink icon.
+This is already correct in principle -- with the `isArc` fix, DYNAMIC non-arc beams will now reach the 'IMRT' branch. No change needed.
+
+### 5. Update `BeamSelector.tsx` label (line 47)
+
+Already uses `beam.isArc ? 'Arc' : 'Static'`. With the fix, IMRT beams will correctly show "Static". No change needed.
+
+## Files Modified
+
+| File | Change |
+|---|---|
+| `src/lib/dicom/parser.ts` | Fix `isArc` detection logic (line 434) to use gantry rotation direction instead of beam type |
+| `src/components/viewer/MLCApertureViewer.tsx` | Remove jaw-data guard, allow MLC rendering with MLC-only extent |
+
+## Impact
+
+- All existing VMAT plans continue to work correctly (they have CW/CCW rotation)
+- IMRT plans now correctly show "IMRT" technique badge, "Static" beam labels, and proper gantry range
+- MLC aperture viewer renders for all plans with MLC data, regardless of jaw presence
+- Metrics calculations are unaffected (they don't depend on `isArc`)
+- Cross-validation parity with Python unaffected (metrics are independent of display classification)
