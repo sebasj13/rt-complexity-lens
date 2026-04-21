@@ -269,15 +269,24 @@ function calculateLeafGap(mlcPositions: MLCLeafPositions): number {
 }
 
 /**
- * Calculate Mean Asymmetry Distance (MAD)
+ * Calculate Mean Asymmetry Distance (MAD).
+ * Reference axis: jaw center (X1+X2)/2, not isocenter (0). For symmetric
+ * jaws this is identical; for off-axis fields it avoids overstating
+ * asymmetry. Aligns with PyComplexityMetric / ComplexityCalc.
  */
-function calculateMAD(mlcPositions: MLCLeafPositions): number {
+function calculateMAD(
+  mlcPositions: MLCLeafPositions,
+  jawPositions?: { x1: number; x2: number; y1: number; y2: number }
+): number {
   const { bankA, bankB } = mlcPositions;
   if (bankA.length === 0 || bankB.length === 0) return 0;
 
   let totalAsymmetry = 0;
   let openCount = 0;
-  const centralAxis = 0; // Assume isocenter at 0
+  // Jaw center as the reference axis (defaults to isocenter if jaws unknown / both 0)
+  const centralAxis = jawPositions
+    ? (jawPositions.x1 + jawPositions.x2) / 2
+    : 0;
 
   for (let i = 0; i < Math.min(bankA.length, bankB.length); i++) {
     const gap = bankB[i] - bankA[i];
@@ -316,40 +325,41 @@ function calculateJawArea(jawPositions: { x1: number; x2: number; y1: number; y2
 }
 
 /**
- * Calculate Tongue-and-Groove index
- * T&G effect occurs when adjacent leaves have different positions creating exposed regions
+ * Calculate Tongue-and-Groove index (Webb 2001 / Younge 2016 -style).
+ *
+ * Normalised step-difference between adjacent leaf banks:
+ *
+ *   TGI = Σ_pairs (|ΔA| + |ΔB|) / Σ_pairs (gap_i + gap_{i+1})
+ *
+ * where ΔA, ΔB are the inter-leaf step heights between leaf i and i+1
+ * for banks A and B respectively. Pairs where neither leaf is open are
+ * skipped. Result is dimensionless and lies roughly in [0, 1].
+ *
+ * This formulation removes the legacy "0.5 mm magic constant" and
+ * matches the closed-form variant used in PyComplexityMetric. Dropping
+ * the leaf-width factor (it cancels under uniform widths) keeps the
+ * index dimensionless and tool-agnostic.
  */
-function calculateTongueAndGroove(mlcPositions: MLCLeafPositions, leafWidths: number[]): number {
+function calculateTongueAndGroove(mlcPositions: MLCLeafPositions, _leafWidths: number[]): number {
   const { bankA, bankB } = mlcPositions;
   if (bankA.length < 2 || bankB.length < 2) return 0;
 
-  let tgExposure = 0;
-  let totalArea = 0;
   const numPairs = Math.min(bankA.length, bankB.length);
+  let stepSum = 0;
+  let gapSum = 0;
 
   for (let i = 0; i < numPairs - 1; i++) {
-    const gapCurrent = bankB[i] - bankA[i];
-    const gapNext = bankB[i + 1] - bankA[i + 1];
-    const leafWidth = leafWidths[i] || 5;
+    const gapCurrent = Math.max(0, bankB[i] - bankA[i]);
+    const gapNext = Math.max(0, bankB[i + 1] - bankA[i + 1]);
+    if (gapCurrent <= 0 && gapNext <= 0) continue;
 
-    // T&G exposure occurs when one leaf is open and adjacent is closed or at different position
-    if (gapCurrent > 0) {
-      totalArea += gapCurrent * leafWidth;
-
-      // Check for T&G between adjacent leaves
-      if (gapNext <= 0) {
-        // Adjacent leaf is closed - T&G exposure along the entire current opening
-        tgExposure += gapCurrent * 0.5; // Approximate T&G width ~0.5mm
-      } else {
-        // Both open but at different positions
-        const positionDiffA = Math.abs(bankA[i + 1] - bankA[i]);
-        const positionDiffB = Math.abs(bankB[i + 1] - bankB[i]);
-        tgExposure += (positionDiffA + positionDiffB) * 0.25;
-      }
-    }
+    const stepA = Math.abs(bankA[i + 1] - bankA[i]);
+    const stepB = Math.abs(bankB[i + 1] - bankB[i]);
+    stepSum += stepA + stepB;
+    gapSum += gapCurrent + gapNext;
   }
 
-  return totalArea > 0 ? tgExposure / totalArea : 0;
+  return gapSum > 0 ? stepSum / gapSum : 0;
 }
 
 /**
@@ -506,21 +516,14 @@ function calculateControlPointMetrics(
   const smallApertureFlags = checkSmallApertures(currentCP.mlcPositions);
   
   let leafTravel = 0;
-  let aav = 0;
-  
+  // apertureAAV is filled in later (in calculateBeamMetrics) using the
+  // beam-level union aperture A_max so that it matches the literature
+  // definition AAV = A_cp / A_max_union (McNiven 2010, UCoMx Eq. 29–30).
+  // Initialised to 0 here as a safe placeholder.
+  const aav = 0;
+
   if (previousCP) {
     leafTravel = calculateLeafTravel(previousCP.mlcPositions, currentCP.mlcPositions);
-    
-    const prevArea = calculateApertureArea(
-      previousCP.mlcPositions,
-      leafWidths,
-      previousCP.jawPositions
-    );
-    
-    // AAV: relative change in aperture area
-    if (prevArea > 0) {
-      aav = Math.abs(apertureArea - prevArea) / prevArea;
-    }
   }
   
   const metersetWeight = currentCP.cumulativeMetersetWeight - 
@@ -536,6 +539,26 @@ function calculateControlPointMetrics(
     aperturePerimeter,
     smallApertureFlags,
   };
+}
+
+/**
+ * Compute the cumulative gantry arc span (in degrees) by summing
+ * the absolute angular delta between consecutive control points.
+ * Each per-segment delta is shortest-arc-corrected (>180° → 360-d),
+ * but the total is NOT, so 270° / 358° single arcs are reported
+ * accurately. Mirrors the parser's `gantry_span` calculation.
+ */
+function computeCumulativeArcSpan(beam: Beam): number {
+  if (beam.controlPoints.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < beam.controlPoints.length; i++) {
+    let d = Math.abs(
+      beam.controlPoints[i].gantryAngle - beam.controlPoints[i - 1].gantryAngle
+    );
+    if (d > 180) d = 360 - d;
+    total += d;
+  }
+  return total;
 }
 
 /**
@@ -560,26 +583,19 @@ function estimateBeamDeliveryTime(
   // Calculate total delivery dose time (MU / dose rate for entire beam)
   const totalDoseTime = beamMU / (machineParams.maxDoseRate / 60); // seconds
   
-  // Calculate total gantry arc time (if arc)
-  let totalGantryTime = 0;
-  if (beam.isArc && beam.controlPoints.length > 1) {
-    // Arc length: absolute difference, with wrap-around correction
-    let arcLength = Math.abs(beam.gantryAngleEnd - beam.gantryAngleStart);
-    if (arcLength > 180) {
-      arcLength = 360 - arcLength;
-    }
-    totalGantryTime = arcLength / machineParams.maxGantrySpeed;
-  }
+  // Calculate cumulative arc span (handles 270°, 358°, full-arc correctly)
+  const arcLength = beam.isArc ? computeCumulativeArcSpan(beam) : 0;
+  const totalGantryTime = arcLength > 0 ? arcLength / machineParams.maxGantrySpeed : 0;
   
-  // Calculate total MLC travel time (sum of all segment leaf movement)
-  let totalMLCTravel = 0;
+  // Calculate total MLC travel time. We sum the per-segment MAX leaf travel
+  // (slowest leaf gates each segment), NOT the cumulative LT used elsewhere.
+  let totalMaxPerSegmentLeafTravel = 0;
   for (let i = 1; i < beam.controlPoints.length; i++) {
     const cp = beam.controlPoints[i];
     const prevCP = beam.controlPoints[i - 1];
-    const maxLeafTravel = getMaxLeafTravel(prevCP.mlcPositions, cp.mlcPositions);
-    totalMLCTravel += maxLeafTravel;
+    totalMaxPerSegmentLeafTravel += getMaxLeafTravel(prevCP.mlcPositions, cp.mlcPositions);
   }
-  const totalMLCTime = totalMLCTravel / machineParams.maxMLCSpeed;
+  const totalMLCTime = totalMaxPerSegmentLeafTravel / machineParams.maxMLCSpeed;
   
   // Delivery time is limited by the slowest factor
   const deliveryTime = Math.max(totalDoseTime, totalGantryTime, totalMLCTime);
@@ -596,18 +612,12 @@ function estimateBeamDeliveryTime(
   
   // Calculate average rates
   const avgDoseRate = deliveryTime > 0 ? (beamMU / deliveryTime) * 60 : 0; // MU/min
-  const avgMLCSpeed = deliveryTime > 0 ? totalMLCTravel / deliveryTime : 0;
+  const avgMLCSpeed = deliveryTime > 0 ? totalMaxPerSegmentLeafTravel / deliveryTime : 0;
   
-  // MU per degree for arcs
+  // MU per degree for arcs (uses cumulative span — fixes >180° single-arc bug)
   let MUperDegree: number | undefined;
-  if (beam.isArc && beam.controlPoints.length > 1) {
-    let arcLength = Math.abs(beam.gantryAngleEnd - beam.gantryAngleStart);
-    if (arcLength > 180) {
-      arcLength = 360 - arcLength;
-    }
-    if (arcLength > 0) {
-      MUperDegree = beamMU / arcLength;
-    }
+  if (arcLength > 0) {
+    MUperDegree = beamMU / arcLength;
   }
   
   return {
@@ -704,7 +714,7 @@ function calculateBeamMetrics(
     totalMetersetWeight += weight;
     
     const lg = calculateLeafGap(cp.mlcPositions);
-    const mad = calculateMAD(cp.mlcPositions);
+    const mad = calculateMAD(cp.mlcPositions, cp.jawPositions);
     const perimeter = cpm.aperturePerimeter || 0;
     const efs = calculateEFS(cpm.apertureArea, perimeter);
     const tg = calculateTongueAndGroove(cp.mlcPositions, beam.mlcLeafWidths);
@@ -811,7 +821,17 @@ function calculateBeamMetrics(
   // ===== Compute AAV and MCS per CA =====
   const caAAVs = caAreas.map(a => aMaxUnion > 0 ? a / aMaxUnion : 0);
   const caMCSs = caLSVs.map((lsv, i) => lsv * caAAVs[i]);
-  
+
+  // Backfill per-CP apertureAAV using the literature definition
+  // AAV_cp = A_cp / A_max_union (McNiven 2010, UCoMx Eq. 29–30).
+  // Replaces the legacy non-standard "relative area change" value so the
+  // per-CP UI display is consistent with the beam-level metric.
+  if (aMaxUnion > 0) {
+    for (const cpm of controlPointMetrics) {
+      cpm.apertureAAV = cpm.apertureArea / aMaxUnion;
+    }
+  }
+
   // ===== Aggregate: Eq. (2) MU-weighted for LSV, AAV, MCS per UCoMx manual =====
   const totalDeltaMU = caDeltaMU.reduce((s, v) => s + v, 0);
   let LSV = totalDeltaMU > 0
