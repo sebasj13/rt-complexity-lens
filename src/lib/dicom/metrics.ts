@@ -269,15 +269,24 @@ function calculateLeafGap(mlcPositions: MLCLeafPositions): number {
 }
 
 /**
- * Calculate Mean Asymmetry Distance (MAD)
+ * Calculate Mean Asymmetry Distance (MAD).
+ * Reference axis: jaw center (X1+X2)/2, not isocenter (0). For symmetric
+ * jaws this is identical; for off-axis fields it avoids overstating
+ * asymmetry. Aligns with PyComplexityMetric / ComplexityCalc.
  */
-function calculateMAD(mlcPositions: MLCLeafPositions): number {
+function calculateMAD(
+  mlcPositions: MLCLeafPositions,
+  jawPositions?: { x1: number; x2: number; y1: number; y2: number }
+): number {
   const { bankA, bankB } = mlcPositions;
   if (bankA.length === 0 || bankB.length === 0) return 0;
 
   let totalAsymmetry = 0;
   let openCount = 0;
-  const centralAxis = 0; // Assume isocenter at 0
+  // Jaw center as the reference axis (defaults to isocenter if jaws unknown / both 0)
+  const centralAxis = jawPositions
+    ? (jawPositions.x1 + jawPositions.x2) / 2
+    : 0;
 
   for (let i = 0; i < Math.min(bankA.length, bankB.length); i++) {
     const gap = bankB[i] - bankA[i];
@@ -316,40 +325,41 @@ function calculateJawArea(jawPositions: { x1: number; x2: number; y1: number; y2
 }
 
 /**
- * Calculate Tongue-and-Groove index
- * T&G effect occurs when adjacent leaves have different positions creating exposed regions
+ * Calculate Tongue-and-Groove index (Webb 2001 / Younge 2016 -style).
+ *
+ * Normalised step-difference between adjacent leaf banks:
+ *
+ *   TGI = Σ_pairs (|ΔA| + |ΔB|) / Σ_pairs (gap_i + gap_{i+1})
+ *
+ * where ΔA, ΔB are the inter-leaf step heights between leaf i and i+1
+ * for banks A and B respectively. Pairs where neither leaf is open are
+ * skipped. Result is dimensionless and lies roughly in [0, 1].
+ *
+ * This formulation removes the legacy "0.5 mm magic constant" and
+ * matches the closed-form variant used in PyComplexityMetric. Dropping
+ * the leaf-width factor (it cancels under uniform widths) keeps the
+ * index dimensionless and tool-agnostic.
  */
-function calculateTongueAndGroove(mlcPositions: MLCLeafPositions, leafWidths: number[]): number {
+function calculateTongueAndGroove(mlcPositions: MLCLeafPositions, _leafWidths: number[]): number {
   const { bankA, bankB } = mlcPositions;
   if (bankA.length < 2 || bankB.length < 2) return 0;
 
-  let tgExposure = 0;
-  let totalArea = 0;
   const numPairs = Math.min(bankA.length, bankB.length);
+  let stepSum = 0;
+  let gapSum = 0;
 
   for (let i = 0; i < numPairs - 1; i++) {
-    const gapCurrent = bankB[i] - bankA[i];
-    const gapNext = bankB[i + 1] - bankA[i + 1];
-    const leafWidth = leafWidths[i] || 5;
+    const gapCurrent = Math.max(0, bankB[i] - bankA[i]);
+    const gapNext = Math.max(0, bankB[i + 1] - bankA[i + 1]);
+    if (gapCurrent <= 0 && gapNext <= 0) continue;
 
-    // T&G exposure occurs when one leaf is open and adjacent is closed or at different position
-    if (gapCurrent > 0) {
-      totalArea += gapCurrent * leafWidth;
-
-      // Check for T&G between adjacent leaves
-      if (gapNext <= 0) {
-        // Adjacent leaf is closed - T&G exposure along the entire current opening
-        tgExposure += gapCurrent * 0.5; // Approximate T&G width ~0.5mm
-      } else {
-        // Both open but at different positions
-        const positionDiffA = Math.abs(bankA[i + 1] - bankA[i]);
-        const positionDiffB = Math.abs(bankB[i + 1] - bankB[i]);
-        tgExposure += (positionDiffA + positionDiffB) * 0.25;
-      }
-    }
+    const stepA = Math.abs(bankA[i + 1] - bankA[i]);
+    const stepB = Math.abs(bankB[i + 1] - bankB[i]);
+    stepSum += stepA + stepB;
+    gapSum += gapCurrent + gapNext;
   }
 
-  return totalArea > 0 ? tgExposure / totalArea : 0;
+  return gapSum > 0 ? stepSum / gapSum : 0;
 }
 
 /**
