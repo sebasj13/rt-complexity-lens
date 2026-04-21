@@ -198,7 +198,11 @@ def _aperture_area(cp: _CP, widths: List[float]) -> float:
 
 
 def _lsv_cp(cp: _CP) -> float:
-    """McNiven LSV at a single CP: per-bank product of (1 − |Δ|/Δmax)."""
+    """McNiven LSV at a single CP: per-bank mean(1 − |Δ|/Δmax), product of banks.
+
+    The 1 − |diff|/max_diff terms are averaged (not multiplied) across leaf
+    pairs within a bank; the two bank means are then multiplied (Eq. 4).
+    """
     def bank_score(bank: List[float]) -> float:
         if len(bank) < 2:
             return 1.0
@@ -207,11 +211,7 @@ def _lsv_cp(cp: _CP) -> float:
         if max_d == 0.0:
             return 1.0
         terms = [(max_d - d) / max_d for d in diffs]
-        # McNiven uses the product across adjacent pairs
-        prod = 1.0
-        for t in terms:
-            prod *= max(0.0, t)
-        return prod
+        return sum(terms) / len(terms)
     return bank_score(cp.bank_a) * bank_score(cp.bank_b)
 
 
