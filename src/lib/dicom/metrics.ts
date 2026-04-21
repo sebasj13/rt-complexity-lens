@@ -1113,8 +1113,10 @@ export function calculatePlanMetrics(
   let weightedLSV = 0;
   let weightedAAV = 0;
   let weightedMFA = 0;
+  let weightedSAS2 = 0;
   let weightedSAS5 = 0;
   let weightedSAS10 = 0;
+  let weightedSAS20 = 0;
   let weightedEM = 0;
   let weightedPI = 0;
   let weightedPAM = 0;
@@ -1158,8 +1160,10 @@ export function calculatePlanMetrics(
     weightedLSV += bm.LSV * mu;  // Eq. (2): MU-weighted
     weightedAAV += bm.AAV * mu;  // Eq. (2): MU-weighted
     weightedMFA += bm.MFA * mu;
+    weightedSAS2 += (bm.SAS2 || 0) * mu;
     weightedSAS5 += (bm.SAS5 || 0) * mu;
     weightedSAS10 += (bm.SAS10 || 0) * mu;
+    weightedSAS20 += (bm.SAS20 || 0) * mu;
     weightedEM += (bm.EM || 0) * mu;
     weightedPI += (bm.PI || 1) * mu;
     
@@ -1223,8 +1227,10 @@ export function calculatePlanMetrics(
   const LSV = totalMU > 0 ? weightedLSV / totalMU : 0;  // Eq. (2): MU-weighted
   const AAV = totalMU > 0 ? weightedAAV / totalMU : 0;  // Eq. (2): MU-weighted
   const MFA = totalMU > 0 ? weightedMFA / totalMU : 0;
+  const SAS2 = totalMU > 0 ? weightedSAS2 / totalMU : 0;
   const SAS5 = totalMU > 0 ? weightedSAS5 / totalMU : 0;
   const SAS10 = totalMU > 0 ? weightedSAS10 / totalMU : 0;
+  const SAS20 = totalMU > 0 ? weightedSAS20 / totalMU : 0;
   const EM = totalMU > 0 ? weightedEM / totalMU : 0;
   const PI = totalMU > 0 ? weightedPI / totalMU : 1;
   const LT = totalLT;
@@ -1294,8 +1300,10 @@ export function calculatePlanMetrics(
       ? plan.totalMU / plan.prescribedDose
       : undefined,
     totalDeliveryTime,
+    SAS2,
     SAS5,
     SAS10,
+    SAS20,
     EM,
     PI,
     PAM,
