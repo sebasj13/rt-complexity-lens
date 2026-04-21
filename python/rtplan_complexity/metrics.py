@@ -767,7 +767,7 @@ def calculate_beam_metrics(
         total_meterset_weight += weight
         
         lg = calculate_leaf_gap(cp.mlc_positions)
-        mad = calculate_mad(cp.mlc_positions)
+        mad = calculate_mad(cp.mlc_positions, cp.jaw_positions)
         perimeter = cpm.aperture_perimeter or 0
         efs = calculate_efs(cpm.aperture_area, perimeter)
         tg = calculate_tongue_and_groove(cp.mlc_positions, beam.mlc_leaf_widths)
