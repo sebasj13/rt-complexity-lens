@@ -67,28 +67,36 @@ _JAW_X_TYPES = ("ASYMX", "X")
 _JAW_Y_TYPES = ("ASYMY", "Y")
 
 
-def _extract_leaf_widths(beam_ds) -> List[float]:
-    """Per-leaf-pair effective width from BeamLimitingDeviceSequence."""
-    widths: List[float] = []
+def _collect_mlc_devices(beam_ds) -> list:
+    """Return list of (rt_type, n_pairs, widths) for each MLC bank in the beam."""
+    out = []
     if not hasattr(beam_ds, "BeamLimitingDeviceSequence"):
-        return widths
+        return out
     for d in beam_ds.BeamLimitingDeviceSequence:
-        rt_type = getattr(d, "RTBeamLimitingDeviceType", "")
-        if rt_type in _MLC_TYPES:
-            boundaries = list(getattr(d, "LeafPositionBoundaries", []) or [])
-            if len(boundaries) >= 2:
-                widths = [
-                    float(boundaries[i + 1]) - float(boundaries[i])
-                    for i in range(len(boundaries) - 1)
-                ]
-                break
-    return widths
+        rt = getattr(d, "RTBeamLimitingDeviceType", "")
+        if not rt.startswith("MLC"):
+            continue
+        boundaries = list(getattr(d, "LeafPositionBoundaries", []) or [])
+        if len(boundaries) < 2:
+            continue
+        widths = [
+            float(boundaries[i + 1]) - float(boundaries[i])
+            for i in range(len(boundaries) - 1)
+        ]
+        out.append((rt, len(widths), widths))
+    return out
 
 
-def _extract_cp(cp_ds, prev_cp: Optional[_CP], n_leaves: int) -> _CP:
-    """Extract a control point, falling back to previous values when absent."""
-    bank_a: List[float] = prev_cp.bank_a if prev_cp else [0.0] * n_leaves
-    bank_b: List[float] = prev_cp.bank_b if prev_cp else [0.0] * n_leaves
+def _extract_cp(cp_ds, prev_cp: Optional[_CP], mlc_devices: list) -> _CP:
+    """Extract control point. Concatenates bank A/B across all MLC stacks."""
+    if prev_cp is not None:
+        bank_a = list(prev_cp.bank_a)
+        bank_b = list(prev_cp.bank_b)
+    else:
+        total_pairs = sum(n for _, n, _ in mlc_devices)
+        bank_a = [0.0] * total_pairs
+        bank_b = [0.0] * total_pairs
+
     jx1 = prev_cp.jaw_x1 if prev_cp else -100.0
     jx2 = prev_cp.jaw_x2 if prev_cp else 100.0
     jy1 = prev_cp.jaw_y1 if prev_cp else -100.0
@@ -96,19 +104,24 @@ def _extract_cp(cp_ds, prev_cp: Optional[_CP], n_leaves: int) -> _CP:
 
     if hasattr(cp_ds, "BeamLimitingDevicePositionSequence"):
         for dev in cp_ds.BeamLimitingDevicePositionSequence:
-            rt_type = getattr(dev, "RTBeamLimitingDeviceType", "")
+            rt = getattr(dev, "RTBeamLimitingDeviceType", "")
             positions = [float(p) for p in getattr(dev, "LeafJawPositions", [])]
-            if rt_type in ("MLCX", "MLCY", "MLC") and len(positions) >= 2 * n_leaves:
-                bank_a = positions[:n_leaves]
-                bank_b = positions[n_leaves:2 * n_leaves]
-            elif rt_type in ("MLCX1", "MLCY1") and len(positions) >= n_leaves:
-                bank_a = positions[:n_leaves]
-            elif rt_type in ("MLCX2", "MLCY2") and len(positions) >= n_leaves:
-                bank_b = positions[:n_leaves]
-            elif rt_type in _JAW_X_TYPES and len(positions) == 2:
-                jx1, jx2 = positions[0], positions[1]
-            elif rt_type in _JAW_Y_TYPES and len(positions) == 2:
-                jy1, jy2 = positions[0], positions[1]
+            if rt in _JAW_X_TYPES and len(positions) == 2:
+                jx1, jx2 = positions
+            elif rt in _JAW_Y_TYPES and len(positions) == 2:
+                jy1, jy2 = positions
+            elif rt.startswith("MLC"):
+                offset = 0
+                npairs = 0
+                for d_rt, n, _ in mlc_devices:
+                    if d_rt == rt:
+                        npairs = n
+                        break
+                    offset += n
+                if npairs > 0 and len(positions) >= 2 * npairs:
+                    for i in range(npairs):
+                        bank_a[offset + i] = positions[i]
+                        bank_b[offset + i] = positions[npairs + i]
 
     mu_cum = float(getattr(cp_ds, "CumulativeMetersetWeight", 0.0))
     return _CP(mu_cum=mu_cum, bank_a=bank_a, bank_b=bank_b,
@@ -116,15 +129,17 @@ def _extract_cp(cp_ds, prev_cp: Optional[_CP], n_leaves: int) -> _CP:
 
 
 def _extract_beam(beam_ds, beam_mu: float) -> Optional[_BeamRef]:
-    widths = _extract_leaf_widths(beam_ds)
-    if not widths:
+    devices = _collect_mlc_devices(beam_ds)
+    if not devices:
         return None
-    n_leaves = len(widths)
+    widths: List[float] = []
+    for _, _, w in devices:
+        widths.extend(w)
 
     cps: List[_CP] = []
     prev: Optional[_CP] = None
     for cp_ds in getattr(beam_ds, "ControlPointSequence", []):
-        cp = _extract_cp(cp_ds, prev, n_leaves)
+        cp = _extract_cp(cp_ds, prev, devices)
         cps.append(cp)
         prev = cp
 
