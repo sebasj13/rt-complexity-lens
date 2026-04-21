@@ -549,6 +549,26 @@ function calculateControlPointMetrics(
 }
 
 /**
+ * Compute the cumulative gantry arc span (in degrees) by summing
+ * the absolute angular delta between consecutive control points.
+ * Each per-segment delta is shortest-arc-corrected (>180° → 360-d),
+ * but the total is NOT, so 270° / 358° single arcs are reported
+ * accurately. Mirrors the parser's `gantry_span` calculation.
+ */
+function computeCumulativeArcSpan(beam: Beam): number {
+  if (beam.controlPoints.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < beam.controlPoints.length; i++) {
+    let d = Math.abs(
+      beam.controlPoints[i].gantryAngle - beam.controlPoints[i - 1].gantryAngle
+    );
+    if (d > 180) d = 360 - d;
+    total += d;
+  }
+  return total;
+}
+
+/**
  * Estimate delivery time for a beam based on machine parameters.
  * 
  * For arcs: gantry moves continuously; time = max(MU_time, arc_time, mlc_time)
@@ -570,26 +590,19 @@ function estimateBeamDeliveryTime(
   // Calculate total delivery dose time (MU / dose rate for entire beam)
   const totalDoseTime = beamMU / (machineParams.maxDoseRate / 60); // seconds
   
-  // Calculate total gantry arc time (if arc)
-  let totalGantryTime = 0;
-  if (beam.isArc && beam.controlPoints.length > 1) {
-    // Arc length: absolute difference, with wrap-around correction
-    let arcLength = Math.abs(beam.gantryAngleEnd - beam.gantryAngleStart);
-    if (arcLength > 180) {
-      arcLength = 360 - arcLength;
-    }
-    totalGantryTime = arcLength / machineParams.maxGantrySpeed;
-  }
+  // Calculate cumulative arc span (handles 270°, 358°, full-arc correctly)
+  const arcLength = beam.isArc ? computeCumulativeArcSpan(beam) : 0;
+  const totalGantryTime = arcLength > 0 ? arcLength / machineParams.maxGantrySpeed : 0;
   
-  // Calculate total MLC travel time (sum of all segment leaf movement)
-  let totalMLCTravel = 0;
+  // Calculate total MLC travel time. We sum the per-segment MAX leaf travel
+  // (slowest leaf gates each segment), NOT the cumulative LT used elsewhere.
+  let totalMaxPerSegmentLeafTravel = 0;
   for (let i = 1; i < beam.controlPoints.length; i++) {
     const cp = beam.controlPoints[i];
     const prevCP = beam.controlPoints[i - 1];
-    const maxLeafTravel = getMaxLeafTravel(prevCP.mlcPositions, cp.mlcPositions);
-    totalMLCTravel += maxLeafTravel;
+    totalMaxPerSegmentLeafTravel += getMaxLeafTravel(prevCP.mlcPositions, cp.mlcPositions);
   }
-  const totalMLCTime = totalMLCTravel / machineParams.maxMLCSpeed;
+  const totalMLCTime = totalMaxPerSegmentLeafTravel / machineParams.maxMLCSpeed;
   
   // Delivery time is limited by the slowest factor
   const deliveryTime = Math.max(totalDoseTime, totalGantryTime, totalMLCTime);
@@ -606,18 +619,12 @@ function estimateBeamDeliveryTime(
   
   // Calculate average rates
   const avgDoseRate = deliveryTime > 0 ? (beamMU / deliveryTime) * 60 : 0; // MU/min
-  const avgMLCSpeed = deliveryTime > 0 ? totalMLCTravel / deliveryTime : 0;
+  const avgMLCSpeed = deliveryTime > 0 ? totalMaxPerSegmentLeafTravel / deliveryTime : 0;
   
-  // MU per degree for arcs
+  // MU per degree for arcs (uses cumulative span — fixes >180° single-arc bug)
   let MUperDegree: number | undefined;
-  if (beam.isArc && beam.controlPoints.length > 1) {
-    let arcLength = Math.abs(beam.gantryAngleEnd - beam.gantryAngleStart);
-    if (arcLength > 180) {
-      arcLength = 360 - arcLength;
-    }
-    if (arcLength > 0) {
-      MUperDegree = beamMU / arcLength;
-    }
+  if (arcLength > 0) {
+    MUperDegree = beamMU / arcLength;
   }
   
   return {
