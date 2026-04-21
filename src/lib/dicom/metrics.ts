@@ -516,21 +516,14 @@ function calculateControlPointMetrics(
   const smallApertureFlags = checkSmallApertures(currentCP.mlcPositions);
   
   let leafTravel = 0;
-  let aav = 0;
-  
+  // apertureAAV is filled in later (in calculateBeamMetrics) using the
+  // beam-level union aperture A_max so that it matches the literature
+  // definition AAV = A_cp / A_max_union (McNiven 2010, UCoMx Eq. 29–30).
+  // Initialised to 0 here as a safe placeholder.
+  const aav = 0;
+
   if (previousCP) {
     leafTravel = calculateLeafTravel(previousCP.mlcPositions, currentCP.mlcPositions);
-    
-    const prevArea = calculateApertureArea(
-      previousCP.mlcPositions,
-      leafWidths,
-      previousCP.jawPositions
-    );
-    
-    // AAV: relative change in aperture area
-    if (prevArea > 0) {
-      aav = Math.abs(apertureArea - prevArea) / prevArea;
-    }
   }
   
   const metersetWeight = currentCP.cumulativeMetersetWeight - 
