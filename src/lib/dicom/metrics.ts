@@ -1540,11 +1540,17 @@ export function metricsToCSV(metrics: PlanMetrics, enabledMetrics?: string[]): s
   if (isEnabled('PI') && metrics.PI !== undefined) {
     lines.push(`PI,Plan Irregularity,${metrics.PI.toFixed(4)},`);
   }
+  if (isEnabled('SAS2') && metrics.SAS2 !== undefined) {
+    lines.push(`SAS2,Small Aperture Score (2mm),${metrics.SAS2.toFixed(4)},`);
+  }
   if (isEnabled('SAS5') && metrics.SAS5 !== undefined) {
     lines.push(`SAS5,Small Aperture Score (5mm),${metrics.SAS5.toFixed(4)},`);
   }
   if (isEnabled('SAS10') && metrics.SAS10 !== undefined) {
     lines.push(`SAS10,Small Aperture Score (10mm),${metrics.SAS10.toFixed(4)},`);
+  }
+  if (isEnabled('SAS20') && metrics.SAS20 !== undefined) {
+    lines.push(`SAS20,Small Aperture Score (20mm),${metrics.SAS20.toFixed(4)},`);
   }
   
   // Deliverability metrics
