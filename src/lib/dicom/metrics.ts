@@ -714,7 +714,7 @@ function calculateBeamMetrics(
     totalMetersetWeight += weight;
     
     const lg = calculateLeafGap(cp.mlcPositions);
-    const mad = calculateMAD(cp.mlcPositions);
+    const mad = calculateMAD(cp.mlcPositions, cp.jawPositions);
     const perimeter = cpm.aperturePerimeter || 0;
     const efs = calculateEFS(cpm.apertureArea, perimeter);
     const tg = calculateTongueAndGroove(cp.mlcPositions, beam.mlcLeafWidths);
