@@ -251,23 +251,32 @@ function parseControlPoint(
     if (openLeafIndices.length >= 2) {
       const bldSeq = beamDataSet.elements[TAGS.BeamLimitingDeviceSequence];
       if (bldSeq && bldSeq.items) {
+        // Some plans (e.g. MRIdian) have multiple MLCX entries with different
+        // boundary arrays. Prefer the one whose leaf count matches the actual
+        // MLC bank length to avoid using an unrelated definition.
+        const candidates: { boundaries: number[]; matches: boolean }[] = [];
         for (const item of bldSeq.items) {
           const itemDS = item.dataSet;
           if (!itemDS) continue;
           const deviceType = getString(itemDS, TAGS.RTBeamLimitingDeviceType);
           if (deviceType === 'MLCX' || deviceType === 'MLCY') {
             const boundaries = getFloatArray(itemDS, TAGS.LeafPositionBoundaries);
-            // LeafPositionBoundaries has length = numLeaves + 1 (each boundary between leaf pairs)
-            if (boundaries.length > 1 && openLeafIndices.length > 0) {
-              const minLeafIdx = Math.min(...openLeafIndices);
-              const maxLeafIdx = Math.max(...openLeafIndices);
-              // Boundary i separates leaf i-1 and leaf i
-              const y1 = boundaries[minLeafIdx];
-              const y2 = boundaries[maxLeafIdx + 1];
-              if (y2 - y1 > 1) {
-                jawPositions = { ...jawPositions, y1, y2 };
-              }
+            if (boundaries.length > 1) {
+              candidates.push({
+                boundaries,
+                matches: boundaries.length - 1 === mlcPositions.bankA.length,
+              });
             }
+          }
+        }
+        const chosen = candidates.find(c => c.matches) ?? candidates[0];
+        if (chosen && openLeafIndices.length > 0) {
+          const minLeafIdx = Math.min(...openLeafIndices);
+          const maxLeafIdx = Math.max(...openLeafIndices);
+          const y1 = chosen.boundaries[minLeafIdx];
+          const y2 = chosen.boundaries[maxLeafIdx + 1];
+          if (y2 !== undefined && y1 !== undefined && y2 - y1 > 1) {
+            jawPositions = { ...jawPositions, y1, y2 };
           }
         }
       }
