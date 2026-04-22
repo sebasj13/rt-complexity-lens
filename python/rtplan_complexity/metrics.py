@@ -230,8 +230,9 @@ def calculate_aperture_perimeter(
         leaf_bot = leaf_bounds[i + 1]
         eff_width = max(0.0, min(leaf_bot, jaw_y2) - max(leaf_top, jaw_y1))
         if eff_width <= 0:
-            if prev_open:
-                perimeter += (prev_b - prev_a)
+            # Match TS: skip silently, do not close prior group with a
+            # bottom horizontal edge. The TS perimeter algorithm only
+            # closes a group on a closed leaf or at the final iteration.
             prev_open = False
             continue
 
