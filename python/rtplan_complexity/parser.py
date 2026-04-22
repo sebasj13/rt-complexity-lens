@@ -170,21 +170,29 @@ def _derive_jaw_positions_from_mlc(
         try:
             bld_seq = getattr(beam_ds, "BeamLimitingDeviceSequence", None)
             if bld_seq:
+                # Some plans (e.g. MRIdian) have multiple MLCX entries with
+                # different boundary arrays. Prefer the one whose leaf count
+                # matches the actual MLC bank length to avoid using an
+                # unrelated definition.
+                candidates = []
                 for item in bld_seq:
                     device_type = _get_string(item, "RTBeamLimitingDeviceType")
                     if device_type in ("MLCX", "MLCY"):
                         boundaries = _get_float_array(item, "LeafPositionBoundaries")
-                        # LeafPositionBoundaries has length = numLeaves + 1
                         if len(boundaries) > 1:
-                            min_leaf_idx = min(open_leaf_indices)
-                            max_leaf_idx = max(open_leaf_indices)
-                            # Boundary[i] separates leaf i-1 and leaf i
-                            y1 = boundaries[min_leaf_idx]
-                            y2 = boundaries[max_leaf_idx + 1]
-                            if y2 - y1 > 1:
-                                result.y1 = y1
-                                result.y2 = y2
-                        break
+                            matches = (len(boundaries) - 1) == len(mlc_positions.bank_a)
+                            candidates.append((boundaries, matches))
+                chosen = next((c[0] for c in candidates if c[1]), None)
+                if chosen is None and candidates:
+                    chosen = candidates[0][0]
+                if chosen is not None:
+                    min_leaf_idx = min(open_leaf_indices)
+                    max_leaf_idx = max(open_leaf_indices)
+                    y1 = chosen[min_leaf_idx]
+                    y2 = chosen[max_leaf_idx + 1]
+                    if y2 - y1 > 1:
+                        result.y1 = y1
+                        result.y2 = y2
         except Exception:
             pass
     
