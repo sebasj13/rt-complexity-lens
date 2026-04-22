@@ -35,6 +35,7 @@ function handleDownloadJSON() {
     tolerances: METRIC_TOLERANCES,
     deltas: PER_METRIC_DELTAS,
     benchmark: UCOMX_BENCHMARK,
+    thirdPartyBenchmark: THIRD_PARTY_BENCHMARK,
     algorithms: SHARED_ALGORITHMS,
     sourceFiles: SOURCE_FILES.map(f => ({ ...f, url: `${GITHUB_BASE_URL}${f.path}` })),
   };
